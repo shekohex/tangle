@@ -1,18 +1,3 @@
-// This file is part of Tangle.
-// Copyright (C) 2022-2024 Webb Technologies Inc.
-//
-// Tangle is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// Tangle is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with Tangle.  If not, see <http://www.gnu.org/licenses/>.
 use crate::types::ConstraintsOf;
 
 use super::*;
@@ -939,5 +924,63 @@ fn dispute_an_already_applied_slash() {
 			Services::dispute(RuntimeOrigin::signed(eve.clone()), era, slash_index),
 			Error::<Runtime>::UnappliedSlashNotFound
 		);
+	});
+}
+
+#[test]
+fn push_mbsm_version() {
+	new_test_ext(vec![ALICE, BOB, CHARLIE, DAVE, EVE]).execute_with(|| {
+		System::set_block_number(1);
+		let alice = mock_pub_key(ALICE);
+
+		let mbsm_address = H160::from_low_u64_be(1);
+		assert_ok!(Services::push_mbsm_version(RuntimeOrigin::root(), mbsm_address));
+
+		let versions = Services::mbsm_versions();
+		assert_eq!(versions.len(), 1);
+		assert_eq!(versions[0], mbsm_address);
+	});
+}
+
+#[test]
+fn get_most_recent_mbsm_version() {
+	new_test_ext(vec![ALICE, BOB, CHARLIE, DAVE, EVE]).execute_with(|| {
+		System::set_block_number(1);
+		let alice = mock_pub_key(ALICE);
+
+		let mbsm_address_1 = H160::from_low_u64_be(1);
+		let mbsm_address_2 = H160::from_low_u64_be(2);
+		assert_ok!(Services::push_mbsm_version(RuntimeOrigin::root(), mbsm_address_1));
+		assert_ok!(Services::push_mbsm_version(RuntimeOrigin::root(), mbsm_address_2));
+
+		let most_recent_version = Services::get_most_recent_mbsm_version();
+		assert_eq!(most_recent_version, Some(mbsm_address_2));
+	});
+}
+
+#[test]
+fn create_service_blueprint_with_mbsm() {
+	new_test_ext(vec![ALICE, BOB, CHARLIE, DAVE, EVE]).execute_with(|| {
+		System::set_block_number(1);
+		let alice = mock_pub_key(ALICE);
+
+		let mbsm_address_1 = H160::from_low_u64_be(1);
+		let mbsm_address_2 = H160::from_low_u64_be(2);
+		assert_ok!(Services::push_mbsm_version(RuntimeOrigin::root(), mbsm_address_1));
+		assert_ok!(Services::push_mbsm_version(RuntimeOrigin::root(), mbsm_address_2));
+
+		let blueprint = cggmp21_blueprint();
+
+		assert_ok!(Services::create_blueprint(RuntimeOrigin::signed(alice.clone()), blueprint));
+
+		let next_id = Services::next_blueprint_id();
+		assert_eq!(next_id, 1);
+		assert_events(vec![RuntimeEvent::Services(crate::Event::BlueprintCreated {
+			owner: alice,
+			blueprint_id: next_id - 1,
+		})]);
+
+		let mbsm_version = Services::service_mbsm_version(next_id - 1);
+		assert_eq!(mbsm_version, 1);
 	});
 }

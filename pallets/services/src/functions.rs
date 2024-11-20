@@ -492,7 +492,7 @@ impl<T: Config> Pallet<T> {
 				let info = Self::evm_call(Self::address(), contract, value, data, gas_limit)?;
 				(info.exit_reason.is_succeed(), Self::weight_from_call_info(&info))
 			},
-			_ => (true, Weight::zero()),
+			_ => (true, Weight::zero())),
 		};
 		Ok((allowed, weight))
 	}
@@ -544,7 +544,7 @@ impl<T: Config> Pallet<T> {
 				let info = Self::evm_call(Self::address(), contract, value, data, gas_limit)?;
 				(info.exit_reason.is_succeed(), Self::weight_from_call_info(&info))
 			},
-			_ => (true, Weight::zero()),
+			_ => (true, Weight::zero())),
 		};
 		Ok((allowed, weight))
 	}
@@ -615,7 +615,7 @@ impl<T: Config> Pallet<T> {
 					Self::evm_call(Self::address(), contract, U256::from(0), data, gas_limit)?;
 				(info.exit_reason.is_succeed(), Self::weight_from_call_info(&info))
 			},
-			_ => (true, Weight::zero()),
+			_ => (true, Weight::zero())),
 		};
 		Ok((allowed, weight))
 	}
@@ -698,7 +698,7 @@ impl<T: Config> Pallet<T> {
 					Self::evm_call(Self::address(), contract, U256::from(0), data, gas_limit)?;
 				(info.exit_reason.is_succeed(), Self::weight_from_call_info(&info))
 			},
-			_ => (true, Weight::zero()),
+			_ => (true, Weight::zero())),
 		};
 		Ok((allowed, weight))
 	}
@@ -900,5 +900,80 @@ impl<T: Config> Pallet<T> {
 			}
 		}
 		gas_to_weight
+	}
+
+	/// Hook to be called when a blueprint is created.
+	///
+	/// This function is called when a blueprint is created. It performs an EVM call
+	/// to the `onBlueprintCreated` function of the MBSM contract.
+	///
+	/// # Parameters
+	/// * `blueprint_id` - The ID of the blueprint.
+	///
+	/// # Returns
+	/// * `Result<(), DispatchErrorWithPostInfo>` - A result indicating whether the operation was successful.
+	pub fn on_blueprint_created_hook(
+		blueprint_id: u64,
+		owner: &T::AccountId,
+		blueprint: &ServiceBlueprint<T::Constraints>,
+	) -> Result<(), DispatchErrorWithPostInfo> {
+		let mbsm_version = Self::mbsm_versions().len() as u64 - 1;
+		let mbsm_contract = Self::mbsm_versions().get(mbsm_version as usize).ok_or(Error::<T>::BlueprintNotFound)?;
+
+		#[allow(deprecated)]
+		let call = ethabi::Function {
+			name: String::from("onBlueprintCreated"),
+			inputs: vec![
+				ethabi::Param {
+					name: String::from("blueprintId"),
+					kind: ethabi::ParamType::Uint(64),
+					internal_type: None,
+				},
+				ethabi::Param {
+					name: String::from("owner"),
+					kind: ethabi::ParamType::Address,
+					internal_type: None,
+				},
+				ethabi::Param {
+					name: String::from("blueprint"),
+					kind: ethabi::ParamType::Bytes,
+					internal_type: None,
+				},
+			],
+			outputs: Default::default(),
+			constant: None,
+			state_mutability: ethabi::StateMutability::NonPayable,
+		};
+
+		let args = vec![
+			Token::Uint(U256::from(blueprint_id)),
+			Token::Address(T::EvmAddressMapping::into_address(owner.clone())),
+			Token::Bytes(blueprint.encode_to_ethabi()),
+		];
+		let data = call.encode_input(&args).map_err(|_| Error::<T>::EVMAbiEncode)?;
+		let gas_limit = 300_000;
+
+		let info = Self::evm_call(Self::address(), *mbsm_contract, 0.into(), data, gas_limit)?;
+		if info.exit_reason.is_succeed() {
+			Ok(())
+		} else {
+			Err(DispatchErrorWithPostInfo {
+				post_info: PostDispatchInfo { actual_weight: Some(info.used_gas.standard.unique_saturated_into()), pays_fee: Pays::Yes },
+				error: Error::<T>::EVMAbiEncode.into(),
+			})
+		}
+	}
+
+	/// Fetches the MBSM contract address for a given blueprint ID.
+	///
+	/// # Parameters
+	/// * `blueprint_id` - The ID of the blueprint.
+	///
+	/// # Returns
+	/// * `Result<H160, Error<T>>` - The MBSM contract address.
+	pub fn fetch_mbsm_contract(blueprint_id: u64) -> Result<H160, Error<T>> {
+		let mbsm_version = Self::service_mbsm_version(blueprint_id);
+		let mbsm_contract = Self::mbsm_versions().get(mbsm_version as usize).ok_or(Error::<T>::BlueprintNotFound)?;
+		Ok(*mbsm_contract)
 	}
 }

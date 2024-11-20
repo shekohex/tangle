@@ -1,19 +1,3 @@
-// This file is part of Tangle.
-// Copyright (C) 2022-2024 Webb Technologies Inc.
-//
-// Tangle is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// Tangle is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with Tangle.  If not, see <http://www.gnu.org/licenses/>.
-
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::unused_unit)]
 #![allow(clippy::type_complexity)]
@@ -600,6 +584,16 @@ pub mod module {
 		ResultQuery<Error<T>::OperatorProfileNotFound>,
 	>;
 
+	/// Storage to hold all versions of the MBSM contract addresses.
+	#[pallet::storage]
+	#[pallet::getter(fn mbsm_versions)]
+	pub type MBSMVersions<T: Config> = StorageValue<_, Vec<H160>, ValueQuery>;
+
+	/// Storage to hold a mapping between Service Id and the MBSM version used.
+	#[pallet::storage]
+	#[pallet::getter(fn service_mbsm_version)]
+	pub type ServiceMBSMVersion<T: Config> = StorageMap<_, Identity, u64, u64, ValueQuery>;
+
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		/// Create a new service blueprint.
@@ -619,6 +613,10 @@ pub mod module {
 			let blueprint_id = Self::next_blueprint_id();
 			Blueprints::<T>::insert(blueprint_id, (owner.clone(), blueprint));
 			NextBlueprintId::<T>::set(blueprint_id.saturating_add(1));
+
+			// Add the blueprint id and the most recent MBSM index in the storage
+			let mbsm_version = Self::mbsm_versions().len() as u64 - 1;
+			ServiceMBSMVersion::<T>::insert(blueprint_id, mbsm_version);
 
 			Self::deposit_event(Event::BlueprintCreated { owner, blueprint_id });
 			Ok(())
@@ -1274,6 +1272,20 @@ pub mod module {
 			});
 
 			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::Yes })
+			}
+
+		/// Push a new version of the MBSM contract address.
+		#[pallet::weight(10_000)]
+		pub fn push_mbsm_version(origin: OriginFor<T>, address: H160) -> DispatchResult {
+			ensure_root(origin)?;
+			MBSMVersions::<T>::mutate(|versions| versions.push(address));
+			Ok(())
+		}
+
+		/// Get the most recent version of the MBSM contract address.
+		#[pallet::weight(10_000)]
+		pub fn get_most_recent_mbsm_version() -> Option<H160> {
+			Self::mbsm_versions().last().cloned()
 		}
 	}
 }
